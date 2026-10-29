@@ -1,5 +1,6 @@
 'use strict';
 const VERSION = '1.0.0';
+const BACKUP_EVERY_DAYS = 30; // remind about backups after this many days
 
 /* ---------- small helpers ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -237,7 +238,7 @@ function backupBanner() {
   const hasData = S.loans.size || S.tenants.size;
   if (!hasData) return '';
   const age = meta.lastBackup ? daysBetween(meta.lastBackup.slice(0, 10), today()) : null;
-  if (age !== null && age < 7) return '';
+  if (age !== null && age < BACKUP_EVERY_DAYS) return '';
   return `<div class="card alert"><b>⚠ ${age === null ? 'No backup made yet' : `Last backup was ${age} days ago`}</b>
     <p>If this phone is lost or reset, all records are gone. Please send a backup.</p>
     <a class="btn block" href="#settings">Back up now</a></div>`;
@@ -591,7 +592,7 @@ function pageSettings() {
   };
   return `<h2>Send backup by e-mail</h2>
     <div class="card">
-      <p class="${age === null || age >= 7 ? 'bad' : 'ok'}"><b>${age === null ? 'No backup made yet' : age === 0 ? 'Last backup: today' : `Last backup: ${age} day${age === 1 ? '' : 's'} ago`}</b></p>
+      <p class="${age === null || age >= BACKUP_EVERY_DAYS ? 'bad' : 'ok'}"><b>${age === null ? 'No backup made yet' : age === 0 ? 'Last backup: today' : `Last backup: ${age} day${age === 1 ? '' : 's'} ago`}</b></p>
       <label class="field"><span>Send backups to</span>
         <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com" value="${esc(meta.email)}" data-change="email"></label>
       <button class="btn block" data-act="sendBackup">Send backup</button>
