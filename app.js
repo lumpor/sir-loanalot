@@ -8,10 +8,9 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString
 const round2 = n => Math.round(n * 100) / 100;
 const num = v => { const n = parseFloat(String(v ?? '').replace(/,/g, '')); return isFinite(n) ? n : 0; };
 const sum = (arr, f = x => x) => arr.reduce((s, x) => s + f(x), 0);
-const peso = n => {
-  n = round2(n || 0);
-  return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 });
-};
+// Shown to the nearest ₱10: entered amounts are whole ₱100s, and worked-out figures
+// (like the interest part of a fixed-term payment) are not worth showing in centavos.
+const peso = n => '₱' + (Math.round((n || 0) / 10) * 10).toLocaleString('en-PH');
 
 // Small line icons shown inside buttons.
 const ICONS = {
