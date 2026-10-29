@@ -154,7 +154,7 @@ function loanStats(l) {
 
 // What should be collected from loan `l` on day `d` (null if nothing is due that day).
 function dueEntry(l, d) {
-  const paidToday = loanPayments(l.id).filter(p => p.date === d && isRegular(p));
+  const paidToday = loanPayments(l.id).filter(p => p.date === d);
   const st = loanStats(l);
   if (paidToday.length) return { loan: l, st, amount: sum(paidToday, p => p.amount), paid: sum(paidToday, p => p.amount) };
   if (l.closed || d < l.firstDue) return null;
@@ -351,7 +351,7 @@ function pageLoan(id) {
   ].filter(Boolean);
   const pays = [...st.pays].reverse();
   const payRow = p => `<div class="item"><div class="item-main"><b>${peso(p.amount)}</b>
-    <small>${fmtDate(p.date)}${p.kind === 'principal' ? ' · principal returned' : ''}</small></div>
+    <small>${fmtDate(p.date)}${p.kind === 'principal' ? ' · loan paid back' : ''}</small></div>
     <button class="btn small danger" data-act="deletePayment" data-id="${p.id}" aria-label="Delete payment">✕</button></div>`;
   UI.after = () => loadPhotos(l.id);
   return `<div class="card">
@@ -697,11 +697,16 @@ function closeViewer() {
 }
 
 /* ---------- payment sheets ---------- */
-function amountSheet({ title, loan, date, amount, kind, showDate }) {
+// withPrincipal: interest-only loans can pay back part of the loan together with the interest.
+function amountSheet({ title, loan, date, amount, kind, showDate, withPrincipal }) {
   openSheet(`<form data-form="payment">
     <h3>${title}</h3>
     <input type="hidden" name="loan" value="${loan}"><input type="hidden" name="kind" value="${kind}">
-    <label class="field"><span>Amount (₱)</span><input name="amount" type="number" inputmode="numeric" min="100" step="100" required value="${amount}"></label>
+    <label class="field"><span>${withPrincipal ? 'Interest paid (₱)' : 'Amount (₱)'}</span>
+      <input name="amount" type="number" inputmode="numeric" min="0" step="100" required value="${amount}"></label>
+    ${withPrincipal ? `<label class="field"><span>Loan paid back (₱)</span>
+      <input name="principal" type="number" inputmode="numeric" min="0" step="100" value="0">
+      <small>Part of the ${peso(loanStats(S.loans.get(loan)).remaining)} still owed. Leave 0 if only interest was paid.</small></label>` : ''}
     <label class="field" ${showDate ? '' : 'hidden'}><span>Date</span><input name="date" type="date" required value="${date}"></label>
     <button class="btn block" type="submit">Save payment</button></form>`);
   setTimeout(() => $('#sheet input[name=amount]')?.select(), 60);
@@ -721,17 +726,20 @@ const ACT = {
   hideInstall: async () => { meta.hideInstall = true; await saveMeta(); render(); },
 
   pay: async d => { await addPayment(d.loan, d.date, num(d.amount)); render(); },
-  payOther: d => amountSheet({ title: `${bName(S.loans.get(d.loan))} — ${fmtDate(d.date)}`, loan: d.loan, date: d.date, amount: d.amount, kind: 'installment' }),
+  payOther: d => amountSheet({
+    title: `${bName(S.loans.get(d.loan))} — ${fmtDate(d.date)}`, loan: d.loan, date: d.date, amount: d.amount, kind: 'installment',
+    withPrincipal: S.loans.get(d.loan).type === 'interest',
+  }),
   unpay: async d => {
     const l = S.loans.get(d.loan);
-    const pays = loanPayments(d.loan).filter(p => p.date === d.date && isRegular(p));
+    const pays = loanPayments(d.loan).filter(p => p.date === d.date);
     if (!confirm(`Remove ${peso(sum(pays, p => p.amount))} paid by ${bName(l)} on ${fmtDate(d.date)}?`)) return;
     for (const p of pays) await del('payments', p.id);
     await refreshStatus(l); render();
   },
   recordPayment: d => {
     const l = S.loans.get(d.loan);
-    amountSheet({ title: l.type === 'interest' ? 'Record interest payment' : 'Record payment', loan: d.loan, date: today(), amount: installment(l), kind: 'installment', showDate: true });
+    amountSheet({ title: 'Record payment', loan: d.loan, date: today(), amount: installment(l), kind: 'installment', showDate: true, withPrincipal: l.type === 'interest' });
   },
   principalBack: d => amountSheet({ title: 'Principal paid back', loan: d.loan, date: today(), amount: loanStats(S.loans.get(d.loan)).remaining, kind: 'principal', showDate: true }),
   deletePayment: async d => {
@@ -859,8 +867,13 @@ const FORMS = {
   payment: async f => {
     const fd = new FormData(f);
     const amount = num(fd.get('amount'));
-    if (!isHundreds(amount)) return alert('Enter an amount in whole ₱100s.');
-    await addPayment(fd.get('loan'), fd.get('date'), amount, fd.get('kind'));
+    const principal = num(fd.get('principal'));
+    const ok = n => n === 0 || isHundreds(n);
+    if (!ok(amount) || !ok(principal) || amount + principal <= 0) return alert('Enter an amount in whole ₱100s.');
+    const l = S.loans.get(fd.get('loan'));
+    if (principal > loanStats(l).remaining) return alert(`Only ${peso(loanStats(l).remaining)} of the loan is still owed.`);
+    if (amount) await addPayment(l.id, fd.get('date'), amount, fd.get('kind'));
+    if (principal) await addPayment(l.id, fd.get('date'), principal, 'principal');
     closeSheet(); render();
   },
   notes: async f => {
