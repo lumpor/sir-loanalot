@@ -1,6 +1,5 @@
 'use strict';
 const VERSION = '1.0.0';
-const BACKUP_EVERY_DAYS = 30; // remind about backups after this many days
 const DEFAULT_EMAIL = 'fabian.friberg@gmail.com'; // where backups go unless changed in the app
 
 /* ---------- small helpers ---------- */
@@ -272,15 +271,6 @@ function render() {
 const notFound = () => { setHeader('Not found', '#collect'); return `<div class="card">This item no longer exists.</div>`; };
 
 /* ---------- page: collect ---------- */
-function backupBanner() {
-  const hasData = S.loans.size || S.tenants.size;
-  if (!hasData) return '';
-  const age = meta.lastBackup ? daysBetween(meta.lastBackup.slice(0, 10), today()) : null;
-  if (age !== null && age < BACKUP_EVERY_DAYS) return '';
-  return `<div class="card alert"><b>⚠ ${age === null ? 'No export made yet' : `Last export was ${age} days ago`}</b>
-    <p>If this phone is lost or reset, all records are gone. Please send an export.</p>
-    <a class="btn block" href="#settings">${ic('mail')}Export now</a></div>`;
-}
 function installTip() {
   if (isStandalone() || meta.hideInstall) return '';
   return `<div class="card tip"><b>Add this app to your home screen</b>
@@ -310,7 +300,7 @@ function pageCollect(d) {
     return `<div class="item ${e.paid ? 'paid' : ''}">
       <a class="item-main" href="#loan/${l.id}"><b>${esc(bName(l))}</b><small>${info.join(' · ')}</small></a>${right}</div>`;
   }).join('');
-  return `${installTip()}${backupBanner()}
+  return `${installTip()}
     <div class="datenav">
       <a class="btn ghost" href="#collect/${addDays(d, -1)}" aria-label="Previous day">‹</a>
       <input type="date" value="${d}" data-change="collectDate" aria-label="Collection date">
@@ -635,7 +625,7 @@ function pageSettings() {
   };
   return `<h2>Send export by e-mail</h2>
     <div class="card">
-      <p class="${age === null || age >= BACKUP_EVERY_DAYS ? 'bad' : 'ok'}"><b>${age === null ? 'No export made yet' : age === 0 ? 'Last export: today' : `Last export: ${age} day${age === 1 ? '' : 's'} ago`}</b></p>
+      <p class="muted"><b>${age === null ? 'No export made yet' : age === 0 ? 'Last export: today' : `Last export: ${age} day${age === 1 ? '' : 's'} ago`}</b></p>
       <label class="field"><span>Send exports to</span>
         <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com" value="${esc(meta.email)}" data-change="email"></label>
       <button class="btn block" data-act="sendBackup">${ic('mail')}Send export</button>
