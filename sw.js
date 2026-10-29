@@ -1,5 +1,5 @@
 // Serves the app from cache (works offline) and refreshes the cache in the background.
-const CACHE = 'sirloanalot-v1';
+const CACHE = 'sirloanalot-v2';
 const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 

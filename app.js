@@ -1,6 +1,5 @@
 'use strict';
 const VERSION = '1.0.0';
-const DEFAULT_EMAIL = 'fabian.friberg@gmail.com'; // where backups go unless changed in the app
 
 /* ---------- small helpers ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -29,7 +28,6 @@ const ICONS = {
   mail: '<path d="M3 6h18v12H3z M3 7l9 6 9-6"/>',
   download: '<path d="M12 4v11 M7 10l5 5 5-5 M5 20h14"/>',
   upload: '<path d="M12 15V4 M7 9l5-5 5 5 M5 20h14"/>',
-  copy: '<path d="M9 9h11v11H9z M5 15H4V4h11v1"/>',
   personPlus: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6 M19 8v6 M16 11h6"/>',
 };
 const ic = name => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -55,16 +53,17 @@ const fmtDate = s => {
 const fmtMonth = m => parseDate(m + '-01').toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
 
 /* ---------- database (IndexedDB, everything except photos is kept in memory) ---------- */
-const STORES = ['borrowers', 'loans', 'payments', 'photos', 'tenants', 'rent', 'meta'];
+const STORES = ['borrowers', 'loans', 'payments', 'photos', 'tenants', 'rent', 'meta', 'outbox'];
 const S = { borrowers: new Map(), loans: new Map(), payments: new Map(), tenants: new Map(), rent: new Map() };
 let db;
-let meta = { id: 'meta', email: DEFAULT_EMAIL, lastBackup: null, hideInstall: false };
+let meta = { id: 'meta', syncKey: '', syncUser: '', lastSync: null, hideInstall: false };
 
 function openDB() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open('sirloanalot', 1);
+    const r = indexedDB.open('sirloanalot', 2);
     r.onupgradeneeded = () => {
       for (const s of STORES) {
+        if (r.result.objectStoreNames.contains(s)) continue;
         const os = r.result.createObjectStore(s, { keyPath: 'id' });
         if (s === 'photos') os.createIndex('loanId', 'loanId');
       }
@@ -79,15 +78,17 @@ const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); 
 async function loadAll() {
   for (const k of Object.keys(S)) S[k] = new Map((await req(store(k).getAll())).map(o => [o.id, o]));
   const m = await req(store('meta').get('meta'));
-  if (m) meta = { ...meta, ...m, email: m.email || DEFAULT_EMAIL };
+  if (m) meta = { ...meta, ...m };
 }
 async function put(name, obj) {
   if (S[name]) S[name].set(obj.id, obj);
   await req(store(name, 'readwrite').put(obj));
+  await enqueue(name, 'put', obj.id, withNames(name, obj));
 }
 async function del(name, id) {
   if (S[name]) S[name].delete(id);
   await req(store(name, 'readwrite').delete(id));
+  await enqueue(name, 'delete', id);
 }
 const saveMeta = () => req(store('meta', 'readwrite').put(meta));
 
@@ -314,6 +315,7 @@ function pageCollect(d) {
     </div>
     ${entries.length ? `<div class="list">${rows}</div>`
       : `<div class="list"><div class="empty">${dayOfWeek(d) === 0 ? 'Sunday — no daily collections.' : 'Nothing to collect on this day.'}</div></div>`}
+    ${nPaid < entries.length ? `<button class="btn block" data-act="payAll" data-date="${d}">${ic('check')}Mark all as paid</button>` : ''}
     <a class="btn ghost block" href="#loan-new">${ic('plus')}New loan</a>`;
 }
 
@@ -522,11 +524,7 @@ function pageStats(month) {
   for (let k = m; k >= first; k = addMonths(k, -1)) months.push(k);
   const days = [...byDay.keys()].filter(d => monthOf(d) === month).sort().reverse();
   const sel = byMonth.get(month) || { c: 0, i: 0 };
-  return `<div class="btns" style="margin-top:0">
-      <button class="btn" data-act="copySummary" data-month="${month}">${ic('copy')}Copy ${fmtMonth(month)}</button>
-      <button class="btn ghost" data-act="copySummary" data-month="all">${ic('copy')}Copy all time</button></div>
-    <p class="muted" style="margin:6px 4px 0"><small>Paste it in a chat. Pick another month under “By month”.</small></p>
-    <h2>Interest earned</h2>
+  return `<h2>Interest earned</h2>
     <div class="tiles">${tile('Today', byDay.get(t)?.i)}${tile('This month', byMonth.get(m)?.i)}${tile('All time', sum(all, o => o.i))}</div>
     <h2>Money collected</h2>
     <div class="tiles">${tile('Today', byDay.get(t)?.c)}${tile('This month', byMonth.get(m)?.c)}${tile('All time', sum(all, o => o.c))}</div>
@@ -583,7 +581,8 @@ function pageBoarders(month) {
       <div class="big">${peso(collected)} <small>of ${peso(expected)}</small></div>
       <div class="bar"><i style="width:${expected ? Math.min(100, collected / expected * 100) : 0}%"></i></div></div>
     <div class="list">${rows || '<div class="empty">No boarders this month</div>'}</div>
-    <button class="btn block" data-act="editTenant">${ic('personPlus')}Add boarder</button>
+    ${nPaid < here.length ? `<button class="btn block" data-act="payAllRent" data-month="${month}">${ic('check')}Mark all as paid</button>` : ''}
+    <button class="btn ${nPaid < here.length ? 'ghost ' : ''}block" data-act="editTenant">${ic('personPlus')}Add boarder</button>
     ${others.length ? `<details><summary>Other boarders (${others.length})</summary><div class="list">
       ${others.map(t => `<div class="item"><a class="item-main" href="javascript:" data-act="editTenant" data-id="${t.id}"><b>${esc(t.name)}</b>
         <small>${fmtDate(t.startDate)} – ${t.endDate ? fmtDate(t.endDate) : 'ongoing'}</small></a></div>`).join('')}</div></details>` : ''}`;
@@ -609,33 +608,140 @@ function tenantSheet(id) {
 }
 
 /* ---------- page: backup / settings ---------- */
+/* ---------- sync with the Google Sheet ---------- */
+// Every change is saved on the phone first and put in the 'outbox' queue. The queue is sent to
+// the sheet in the background whenever there is internet, so a bad connection never slows the app.
+const SYNC_URL = ''; // the Apps Script web app URL (…/exec)
+const SYNC_APP = 'horny-mafia';
+const SYNCED = ['borrowers', 'loans', 'payments', 'tenants', 'rent'];
+const Sync = { busy: false, timer: null, error: null, pending: 0 };
+
+async function enqueue(storeName, op, id, data = null) {
+  if (!SYNCED.includes(storeName)) return;
+  await req(store('outbox', 'readwrite').put({ id: `${storeName}|${id}`, store: storeName, op, recId: id, data, ts: Date.now() }));
+  scheduleSync();
+}
+const scheduleSync = (ms = 1500) => { clearTimeout(Sync.timer); Sync.timer = setTimeout(() => guard(syncNow)(), ms); };
+
+async function syncPost(body) {
+  // A plain-text body keeps this a "simple" request, which Apps Script accepts from other sites.
+  const r = await fetch(SYNC_URL, { method: 'POST', body: JSON.stringify({ app: SYNC_APP, key: meta.syncKey, ...body }) });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'Sync failed');
+  if (j.user && j.user !== meta.syncUser) { meta.syncUser = j.user; await saveMeta(); }
+  return j;
+}
+
+async function syncNow() {
+  Sync.pending = await req(store('outbox').count());
+  if (!SYNC_URL || !meta.syncKey || Sync.busy || !Sync.pending || !navigator.onLine) return updateSyncInfo();
+  Sync.busy = true;
+  try {
+    const items = (await req(store('outbox').getAll())).slice(0, 300);
+    await syncPost({ action: 'push', ops: items.map(i => ({ store: i.store, op: i.op, id: i.recId, data: i.data })) });
+    for (const i of items) {
+      // keep an item that was changed again while it was being sent
+      const cur = await req(store('outbox').get(i.id));
+      if (cur && cur.ts === i.ts) await req(store('outbox', 'readwrite').delete(i.id));
+    }
+    meta.lastSync = new Date().toISOString();
+    await saveMeta();
+    Sync.error = null;
+  } catch (err) {
+    Sync.error = err.message;
+    scheduleSync(30000);
+  } finally {
+    Sync.busy = false;
+  }
+  Sync.pending = await req(store('outbox').count());
+  if (Sync.pending && !Sync.error) scheduleSync(200);
+  updateSyncInfo();
+}
+
+// A setup link (…/#setup/<secret code>) switches sync on for this phone.
+async function handleSetupLink() {
+  const m = location.hash.match(/^#setup\/(.+)$/);
+  if (!m) return false;
+  meta.syncKey = decodeURIComponent(m[1]);
+  await saveMeta();
+  history.replaceState(null, '', location.pathname);
+  await queueEverything();
+  toast('Sync is on ✓');
+  return true;
+}
+
+function syncInfoHtml() {
+  if (!SYNC_URL || !meta.syncKey) return '<p><b>Sync is not set up yet.</b></p><p><small>Open the setup link you were sent.</small></p>';
+  const last = meta.lastSync ? new Date(meta.lastSync).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
+  return `<p class="${Sync.pending ? '' : 'ok'}"><b>${Sync.pending ? `${Sync.pending} change${Sync.pending === 1 ? '' : 's'} waiting to be sent` : 'Everything is synced ✓'}</b></p>
+    ${Sync.pending && !navigator.onLine ? '<p><small>No internet right now. They will be sent automatically.</small></p>' : ''}
+    ${Sync.error ? `<p class="bad"><small>Last try failed: ${esc(Sync.error)}. Trying again soon.</small></p>` : ''}
+    <p><small>${meta.syncUser ? `Synced as ${esc(meta.syncUser)} · ` : ''}Last synced: ${last}</small></p>`;
+}
+function updateSyncInfo() {
+  const el = $('#syncInfo');
+  if (el) el.innerHTML = syncInfoHtml();
+}
+function syncCard() {
+  const on = SYNC_URL && meta.syncKey;
+  return `<h2>Sync with the sheet</h2>
+    <div class="card"><div id="syncInfo">${syncInfoHtml()}</div>
+      ${on ? `<button class="btn block" data-act="syncNow">Sync now</button>
+      <button class="btn ghost block" data-act="loadFromSheet">Load everything from the sheet</button>
+      <p><small>Only needed on a new phone. It replaces what is on this phone.</small></p>` : ''}
+    </div>`;
+}
+
+// Replace the given stores on this phone with what the sheet has.
+async function replaceFromSheet(stores, data) {
+  const t = db.transaction(STORES, 'readwrite');
+  t.objectStore('outbox').clear();
+  for (const s of stores) {
+    t.objectStore(s).clear();
+    for (const o of data[s] || []) t.objectStore(s).put(o);
+  }
+  t.objectStore('meta').put(meta);
+  await new Promise((res, rej) => { t.oncomplete = res; t.onerror = () => rej(t.error); });
+}
+
+// The sheet gets the borrower's or boarder's name next to each record, so it is easy to read there.
+function withNames(name, obj) {
+  if (name === 'loans') return { ...obj, borrower: S.borrowers.get(obj.borrowerId)?.name || '' };
+  if (name === 'payments') { const l = S.loans.get(obj.loanId); return { ...obj, borrower: l ? bName(l) : '' }; }
+  if (name === 'rent') return { ...obj, boarder: S.tenants.get(obj.tenantId)?.name || '' };
+  return obj;
+}
+
+async function queueEverything() {
+  for (const name of SYNCED) for (const o of S[name].values()) await enqueue(name, 'put', o.id, withNames(name, o));
+}
+
+async function loadFromSheet() {
+  if (!navigator.onLine) return toast('No internet right now');
+  toast('Loading from the sheet…', 15000);
+  const { data } = await syncPost({ action: 'pull' });
+  const n = k => (data[k] || []).length;
+  if (!confirm(`Load from the sheet?\n\n${n('loans')} loans, ${n('payments')} payments, ${n('tenants')} boarders.\n\nEverything on this phone will be REPLACED (contract photos stay).`)) return;
+  await replaceFromSheet(SYNCED, data);
+  await loadAll();
+  toast('Loaded ✓');
+  go('#collect');
+  render();
+}
+
+/* ---------- page: sync / settings ---------- */
 function pageSettings() {
-  setHeader('Export & settings');
-  const age = meta.lastBackup ? daysBetween(meta.lastBackup.slice(0, 10), today()) : null;
-  UI.prepared = null;
+  setHeader('Sync & settings');
   UI.after = async () => {
-    const text = await exportData();
-    UI.prepared = text;
-    const el = $('#backupSize');
-    if (el) el.textContent = `Export size: ${(text.length / 1048576).toFixed(1)} MB`;
+    Sync.pending = await req(store('outbox').count());
+    updateSyncInfo();
     const est = await navigator.storage?.estimate?.();
     const persisted = await navigator.storage?.persisted?.();
     const s = $('#storageInfo');
     if (s) s.textContent = `${persisted ? 'Storage is protected.' : 'Storage may be cleared by the phone if space runs low.'}${est ? ` Using ${(est.usage / 1048576).toFixed(1)} MB.` : ''}`;
   };
-  return `<h2>Send export by e-mail</h2>
-    <div class="card">
-      <p class="muted"><b>${age === null ? 'No export made yet' : age === 0 ? 'Last export: today' : `Last export: ${age} day${age === 1 ? '' : 's'} ago`}</b></p>
-      <label class="field"><span>Send exports to</span>
-        <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com" value="${esc(meta.email)}" data-change="email"></label>
-      <button class="btn block" data-act="sendBackup">${ic('mail')}Send export</button>
-      <p><small>Pick Gmail (or another mail app) in the list that opens. The address above is copied — paste it into “To”.
-        <span id="backupSize"></span></small></p>
-      <button class="btn ghost block" data-act="saveBackup">${ic('download')}Save export file on this phone</button>
-    </div>
-    <h2>Import</h2>
-    <div class="card"><p><small>Load an export file. This <b>replaces</b> everything currently in the app.</small></p>
-      <label class="btn ghost block">${ic('upload')}Import from file<input type="file" accept=".txt,.json,text/plain,application/json" data-change="restore" hidden></label></div>
+  return `${syncCard()}
+    <p class="muted" style="margin:0 4px 12px"><small>Contract photos stay on this phone and are not sent to the sheet.</small></p>
     <h2>App</h2>
     <div class="card">
       ${isStandalone() ? '<p class="ok">Installed on home screen ✓</p>'
@@ -644,97 +750,6 @@ function pageSettings() {
       <p><small id="storageInfo"></small></p>
       <p><small>${S.borrowers.size} borrowers · ${S.loans.size} loans · ${S.payments.size} payments · ${S.tenants.size} boarders · version ${VERSION}</small></p>
     </div>`;
-}
-
-/* ---------- monthly summary (copied as text, to paste in a chat) ---------- */
-// m is 'YYYY-MM', or 'all' for everything so far.
-function monthSummary(m) {
-  const t0 = today();
-  const inMonth = d => m === 'all' || monthOf(d) === m;
-  const rm = m === 'all' ? monthOf(t0) : m; // rent is shown for one month
-  const pays = [...S.payments.values()].filter(p => inMonth(p.date));
-  const interest = sum(pays, p => interestOf(p, S.loans.get(p.loanId)));
-  const newLoans = [...S.loans.values()].filter(l => inMonth(l.startDate));
-  const active = [...S.loans.values()].filter(l => !l.closed);
-  const stats = active.map(l => ({ l, st: loanStats(l) }));
-  const behind = stats.filter(x => x.st.behind > 0).sort((a, b) => b.st.behind - a.st.behind);
-  const tenants = [...S.tenants.values()].filter(t => tenantInMonth(t, rm));
-  const paid = tenants.filter(t => S.rent.has(rentId(t.id, rm)));
-  const unpaid = tenants.filter(t => !S.rent.has(rentId(t.id, rm)));
-  return [
-    `Horny Mafia — ${m === 'all' ? `All time (as of ${fmtDate(t0)})` : fmtMonth(m) + (m === monthOf(t0) ? ` (as of ${fmtDate(t0)})` : '')}`,
-    '',
-    'LOANS',
-    `Lent: ${peso(sum(newLoans, l => l.principal))} (${newLoans.length} loan${newLoans.length === 1 ? '' : 's'})`,
-    `Collected: ${peso(sum(pays, p => p.amount))} (interest ${peso(Math.round(interest))})`,
-    '',
-    'RIGHT NOW',
-    `Active loans: ${active.length}`,
-    `Lent out: ${peso(Math.round(sum(stats, x => x.st.principalOut)))}`,
-    `Still to collect: ${peso(sum(stats, x => x.st.remaining))}`,
-    behind.length ? `Behind: ${peso(sum(behind, x => x.st.behind))} — ${behind.map(x => `${bName(x.l)} ${peso(x.st.behind)}`).join(', ')}` : 'Behind: nobody',
-    '',
-    'BOARDERS',
-    ...(m === 'all' ? [`Rent collected in total: ${peso(sum([...S.rent.values()], r => r.amount))}`] : []),
-    `Rent paid${m === 'all' ? ` ${fmtMonth(rm)}` : ''}: ${peso(sum(paid, t => S.rent.get(rentId(t.id, rm)).amount))} of ${peso(sum(tenants, t => S.rent.get(rentId(t.id, rm))?.amount ?? t.rent))} (${paid.length} of ${tenants.length})`,
-    unpaid.length ? `Not paid: ${unpaid.map(t => `${t.name} ${peso(t.rent)}`).join(', ')}` : 'Not paid: nobody',
-  ].join('\n');
-}
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    toast('Summary copied — paste it in the chat');
-  } catch {
-    // No clipboard access: show the text so it can be copied by hand.
-    openSheet(`<h3>Monthly summary</h3><textarea rows="14" readonly>${esc(text)}</textarea>
-      <p><small>Select all of the text and copy it.</small></p>`);
-    setTimeout(() => { const t = $('#sheet textarea'); t.focus(); t.select(); }, 60);
-  }
-}
-
-async function exportData() {
-  const photos = await req(store('photos').getAll());
-  const toDataURL = blob => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
-  return JSON.stringify({
-    app: 'sir-loanalot', format: 1, exportedAt: new Date().toISOString(),
-    borrowers: [...S.borrowers.values()], loans: [...S.loans.values()], payments: [...S.payments.values()],
-    tenants: [...S.tenants.values()], rent: [...S.rent.values()],
-    photos: await Promise.all(photos.map(async p => ({ id: p.id, loanId: p.loanId, createdAt: p.createdAt, data: await toDataURL(p.blob) }))),
-  });
-}
-// Backups use .txt because Android's share sheet refuses .json files.
-const backupFile = () => new File([UI.prepared], `hornymafia-export-${today()}.txt`, { type: 'text/plain' });
-
-function downloadFile(file) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(file); a.download = file.name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-}
-async function backupDone() {
-  meta.lastBackup = new Date().toISOString();
-  await saveMeta();
-  render();
-}
-
-async function importBackup(file) {
-  let data;
-  try { data = JSON.parse(await file.text()); } catch { return alert('This is not a valid export file.'); }
-  if (data?.app !== 'sir-loanalot') return alert('This is not a Horny Mafia export file.');
-  const when = new Date(data.exportedAt).toLocaleString('en-PH');
-  if (!confirm(`Import data exported on ${when}?\n\n${data.loans.length} loans, ${data.payments.length} payments, ${data.tenants.length} boarders.\n\nEverything currently in the app will be REPLACED.`)) return;
-  const photos = await Promise.all((data.photos || []).map(async p => ({ id: p.id, loanId: p.loanId, createdAt: p.createdAt, blob: await (await fetch(p.data)).blob() })));
-  const t = db.transaction(STORES, 'readwrite');
-  for (const s of STORES) if (s !== 'meta') t.objectStore(s).clear();
-  for (const s of ['borrowers', 'loans', 'payments', 'tenants', 'rent']) for (const o of data[s] || []) t.objectStore(s).put(o);
-  for (const p of photos) t.objectStore('photos').put(p);
-  meta.lastBackup = data.exportedAt;
-  t.objectStore('meta').put(meta);
-  await new Promise((res, rej) => { t.oncomplete = res; t.onerror = () => rej(t.error); });
-  await loadAll();
-  toast('Import done ✓');
-  go('#collect');
-  render();
 }
 
 /* ---------- photos ---------- */
@@ -806,6 +821,12 @@ const ACT = {
   hideInstall: async () => { meta.hideInstall = true; await saveMeta(); render(); },
 
   pay: async d => { await addPayment(d.loan, d.date, num(d.amount)); render(); },
+  payAll: async d => {
+    const unpaid = [...S.loans.values()].map(l => dueEntry(l, d.date)).filter(e => e && !e.paid);
+    if (!confirm(`Mark ${unpaid.length} payment${unpaid.length === 1 ? '' : 's'} on ${fmtDate(d.date)} as paid, ${peso(sum(unpaid, e => e.amount))} in total?`)) return;
+    for (const e of unpaid) await addPayment(e.loan.id, d.date, e.amount);
+    render();
+  },
   payOther: d => amountSheet({
     title: `${bName(S.loans.get(d.loan))} — ${fmtDate(d.date)}`, loan: d.loan, date: d.date, amount: d.amount, kind: 'installment',
     withPrincipal: S.loans.get(d.loan).type === 'interest',
@@ -875,38 +896,19 @@ const ACT = {
     const t = S.tenants.get(d.id);
     await put('rent', { id: rentId(t.id, d.month), tenantId: t.id, month: d.month, amount: t.rent, paidOn: today() }); render();
   },
+  payAllRent: async d => {
+    const unpaid = [...S.tenants.values()].filter(t => tenantInMonth(t, d.month) && !S.rent.has(rentId(t.id, d.month)));
+    if (!confirm(`Mark ${unpaid.length} boarder${unpaid.length === 1 ? '' : 's'} as paid for ${fmtMonth(d.month)}, ${peso(sum(unpaid, t => t.rent))} in total?`)) return;
+    for (const t of unpaid) await put('rent', { id: rentId(t.id, d.month), tenantId: t.id, month: d.month, amount: t.rent, paidOn: today() });
+    render();
+  },
   unpayRent: async d => {
     if (!confirm(`Mark ${S.tenants.get(d.id).name} as NOT paid for ${fmtMonth(d.month)}?`)) return;
     await del('rent', rentId(d.id, d.month)); render();
   },
 
-  sendBackup: () => {
-    const email = $('#email').value.trim();
-    if (!/^\S+@\S+\.\S+$/.test(email)) { toast('Enter a valid e-mail address first'); $('#email').focus(); return; }
-    if (email !== meta.email) { meta.email = email; saveMeta(); }
-    if (!UI.prepared) { toast('Preparing export… try again in a moment'); return; }
-    const file = backupFile();
-    navigator.clipboard?.writeText(email).catch(() => {});
-    if (navigator.canShare?.({ files: [file] })) {
-      toast(`Address copied: ${email}`, 4000);
-      navigator.share({ files: [file], title: `Horny Mafia export ${today()}`, text: `Horny Mafia export ${today()}` })
-        .then(backupDone)
-        .catch(err => { if (err.name !== 'AbortError') toast('Sharing failed: ' + err.message); });
-    } else {
-      // No share sheet (e.g. desktop): save the file and open a mail draft to attach it to.
-      downloadFile(file);
-      setTimeout(() => {
-        location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent('Horny Mafia export ' + today())}`
-          + `&body=${encodeURIComponent(`Please attach the file ${file.name} from Downloads.`)}`;
-      }, 600);
-      backupDone();
-    }
-  },
-  copySummary: d => copyText(monthSummary(d.month)),
-  saveBackup: () => {
-    if (!UI.prepared) return toast('Preparing export… try again in a moment');
-    downloadFile(backupFile()); toast('Export saved to Downloads');
-  },
+  syncNow: async () => { Sync.error = null; await syncNow(); toast(Sync.error ? 'Sync failed — will try again' : Sync.pending ? 'Still sending…' : 'Synced ✓'); },
+  loadFromSheet: () => loadFromSheet(),
 };
 
 /* ---------- forms (data-form) ---------- */
@@ -988,7 +990,6 @@ const FORMS = {
 const CHANGE = {
   collectDate: el => el.value && go(`#collect/${el.value}`),
   boarderMonth: el => el.value && go(`#boarders/${el.value}`),
-  email: async el => { meta.email = el.value.trim(); await saveMeta(); },
   borrowerSelect: el => { $('#newNameField').hidden = el.value !== '__new'; if (el.value === '__new') $('input[name=newName]').focus(); },
   photo: async el => {
     const file = el.files[0];
@@ -998,7 +999,6 @@ const CHANGE = {
     await req(store('photos', 'readwrite').put({ id: uid(), loanId: el.dataset.loan, blob, createdAt: Date.now() }));
     toast('Photo saved ✓'); render();
   },
-  restore: async el => { const f = el.files[0]; el.value = ''; if (f) await importBackup(f); },
 };
 
 const guard = fn => (...a) => Promise.resolve(fn(...a)).catch(err => { console.error(err); alert('Something went wrong: ' + err.message); });
@@ -1049,10 +1049,15 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeViewer(); closeSheet(); } });
 
-window.addEventListener('hashchange', () => { closeSheet(); closeViewer(); render(); });
+window.addEventListener('hashchange', async () => { closeSheet(); closeViewer(); await handleSetupLink(); render(); });
+window.addEventListener('online', () => scheduleSync(100));
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); UI.installEvt = e; render(); });
 // Re-render when the app comes back to the foreground, so "today" is always right.
-document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#sheet').hidden) render(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if ($('#sheet').hidden) render();
+  scheduleSync(100);
+});
 
 (async function init() {
   try {
@@ -1064,5 +1069,8 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && $(
   }
   navigator.storage?.persist?.().catch(() => {});
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  await handleSetupLink();
   render();
+  scheduleSync(500);
+  setInterval(() => scheduleSync(0), 60000);
 })();
