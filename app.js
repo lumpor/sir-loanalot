@@ -30,6 +30,7 @@ const ICONS = {
   mail: '<path d="M3 6h18v12H3z M3 7l9 6 9-6"/>',
   download: '<path d="M12 4v11 M7 10l5 5 5-5 M5 20h14"/>',
   upload: '<path d="M12 15V4 M7 9l5-5 5 5 M5 20h14"/>',
+  copy: '<path d="M9 9h11v11H9z M5 15H4V4h11v1"/>',
   personPlus: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6 M19 8v6 M16 11h6"/>',
 };
 const ic = name => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -531,7 +532,11 @@ function pageStats(month) {
   for (let k = m; k >= first; k = addMonths(k, -1)) months.push(k);
   const days = [...byDay.keys()].filter(d => monthOf(d) === month).sort().reverse();
   const sel = byMonth.get(month) || { c: 0, i: 0 };
-  return `<h2>Interest earned</h2>
+  return `<div class="btns" style="margin-top:0">
+      <button class="btn" data-act="copySummary" data-month="${month}">${ic('copy')}Copy ${fmtMonth(month)}</button>
+      <button class="btn ghost" data-act="copySummary" data-month="all">${ic('copy')}Copy all time</button></div>
+    <p class="muted" style="margin:6px 4px 0"><small>Paste it in a chat. Pick another month under “By month”.</small></p>
+    <h2>Interest earned</h2>
     <div class="tiles">${tile('Today', byDay.get(t)?.i)}${tile('This month', byMonth.get(m)?.i)}${tile('All time', sum(all, o => o.i))}</div>
     <h2>Money collected</h2>
     <div class="tiles">${tile('Today', byDay.get(t)?.c)}${tile('This month', byMonth.get(m)?.c)}${tile('All time', sum(all, o => o.c))}</div>
@@ -649,6 +654,51 @@ function pageSettings() {
       <p><small id="storageInfo"></small></p>
       <p><small>${S.borrowers.size} borrowers · ${S.loans.size} loans · ${S.payments.size} payments · ${S.tenants.size} boarders · version ${VERSION}</small></p>
     </div>`;
+}
+
+/* ---------- monthly summary (copied as text, to paste in a chat) ---------- */
+// m is 'YYYY-MM', or 'all' for everything so far.
+function monthSummary(m) {
+  const t0 = today();
+  const inMonth = d => m === 'all' || monthOf(d) === m;
+  const rm = m === 'all' ? monthOf(t0) : m; // rent is shown for one month
+  const pays = [...S.payments.values()].filter(p => inMonth(p.date));
+  const interest = sum(pays, p => interestOf(p, S.loans.get(p.loanId)));
+  const newLoans = [...S.loans.values()].filter(l => inMonth(l.startDate));
+  const active = [...S.loans.values()].filter(l => !l.closed);
+  const stats = active.map(l => ({ l, st: loanStats(l) }));
+  const behind = stats.filter(x => x.st.behind > 0).sort((a, b) => b.st.behind - a.st.behind);
+  const tenants = [...S.tenants.values()].filter(t => tenantInMonth(t, rm));
+  const paid = tenants.filter(t => S.rent.has(rentId(t.id, rm)));
+  const unpaid = tenants.filter(t => !S.rent.has(rentId(t.id, rm)));
+  const age = meta.lastBackup ? daysBetween(meta.lastBackup.slice(0, 10), t0) : null;
+  return [
+    `Horny Mafia — ${m === 'all' ? `All time (as of ${fmtDate(t0)})` : fmtMonth(m) + (m === monthOf(t0) ? ` (as of ${fmtDate(t0)})` : '')}`,
+    '',
+    'LOANS',
+    `Collected: ${peso(sum(pays, p => p.amount))} (interest ${peso(Math.round(interest))})`,
+    `${m === 'all' ? 'Loans given' : 'New loans'}: ${newLoans.length}${newLoans.length ? `, ${peso(sum(newLoans, l => l.principal))} lent` : ''}`,
+    `Right now: ${active.length} active loan${active.length === 1 ? '' : 's'} · lent out ${peso(Math.round(sum(stats, x => x.st.principalOut)))} · still to collect ${peso(sum(stats, x => x.st.remaining))}`,
+    behind.length ? `Behind: ${peso(sum(behind, x => x.st.behind))} — ${behind.map(x => `${bName(x.l)} ${peso(x.st.behind)}`).join(', ')}` : 'Behind: nobody',
+    '',
+    'BOARDERS',
+    ...(m === 'all' ? [`Rent collected in total: ${peso(sum([...S.rent.values()], r => r.amount))}`] : []),
+    `Rent paid${m === 'all' ? ` ${fmtMonth(rm)}` : ''}: ${peso(sum(paid, t => S.rent.get(rentId(t.id, rm)).amount))} of ${peso(sum(tenants, t => S.rent.get(rentId(t.id, rm))?.amount ?? t.rent))} (${paid.length} of ${tenants.length})`,
+    unpaid.length ? `Not paid: ${unpaid.map(t => `${t.name} ${peso(t.rent)}`).join(', ')}` : 'Not paid: nobody',
+    '',
+    `Last export: ${age === null ? 'never' : age === 0 ? 'today' : `${age} days ago`}`,
+  ].join('\n');
+}
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Summary copied — paste it in the chat');
+  } catch {
+    // No clipboard access: show the text so it can be copied by hand.
+    openSheet(`<h3>Monthly summary</h3><textarea rows="14" readonly>${esc(text)}</textarea>
+      <p><small>Select all of the text and copy it.</small></p>`);
+    setTimeout(() => { const t = $('#sheet textarea'); t.focus(); t.select(); }, 60);
+  }
 }
 
 async function exportData() {
@@ -861,6 +911,7 @@ const ACT = {
       backupDone();
     }
   },
+  copySummary: d => copyText(monthSummary(d.month)),
   saveBackup: () => {
     if (!UI.prepared) return toast('Preparing export… try again in a moment');
     downloadFile(backupFile()); toast('Export saved to Downloads');
