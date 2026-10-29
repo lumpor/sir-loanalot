@@ -122,7 +122,27 @@ function planTerm({ total, frequency, firstDue, mode, endDate, installment }) {
   const n = Math.ceil(total / inst);
   return { installment: inst, n, endDate: nthCollectionDay(firstDue, frequency, n), last: total - inst * (n - 1) };
 }
-const installment = l => l.installment || 0;
+// Amount due per collection. For interest-only loans, `l.installment` is the interest on the full
+// amount lent; it drops in proportion as the loan is paid back (rounded to ₱100, at least ₱100),
+// counting only repayments made before day `d`.
+function installment(l, d = '9999-12-31') {
+  if (l.type !== 'interest') return l.installment || 0;
+  const repaid = sum(loanPayments(l.id).filter(p => !isRegular(p) && p.date < d), p => p.amount);
+  const left = l.principal - repaid;
+  if (left <= 0) return 0;
+  if (!repaid) return l.installment;
+  return Math.max(100, Math.round(l.installment * left / l.principal / 100) * 100);
+}
+
+// Total that should have been paid by the end of day `upto`.
+function expectedBy(l, upto) {
+  if (l.type === 'term') return upto >= l.endDate ? l.total : Math.min(l.installment * countDue(l, upto), l.total);
+  let total = 0;
+  for (let d = l.firstDue; d <= upto; d = addDays(d, l.frequency === 'weekly' ? 7 : 1)) {
+    if (l.frequency === 'weekly' || dayOfWeek(d) !== 0) total += installment(l, d);
+  }
+  return total;
+}
 
 const isRegular = p => p.kind !== 'principal';
 function interestOf(p, l) {
@@ -136,10 +156,7 @@ function loanStats(l) {
   const inst = installment(l);
   const paidRegular = round2(sum(pays.filter(isRegular), p => p.amount));
   const paidPrincipal = round2(sum(pays.filter(p => !isRegular(p)), p => p.amount));
-  const yesterday = addDays(today(), -1);
-  let expected = inst * countDue(l, yesterday);
-  if (l.type === 'term') expected = yesterday >= l.endDate ? l.total : Math.min(expected, l.total);
-  const behind = l.closed ? 0 : Math.max(0, round2(expected - paidRegular));
+  const behind = l.closed ? 0 : Math.max(0, round2(expectedBy(l, addDays(today(), -1)) - paidRegular));
   const remaining = l.type === 'term'
     ? Math.max(0, round2(l.total - paidRegular))
     : Math.max(0, round2(l.principal - paidPrincipal));
@@ -160,7 +177,7 @@ function dueEntry(l, d) {
   if (paidToday.length) return { loan: l, st, amount: sum(paidToday, p => p.amount), paid: sum(paidToday, p => p.amount) };
   if (l.closed || d < l.firstDue) return null;
   if (l.frequency === 'weekly' ? daysBetween(l.firstDue, d) % 7 !== 0 : dayOfWeek(d) === 0) return null;
-  let amount = st.inst;
+  let amount = installment(l, d);
   if (l.type === 'term') {
     if (st.remaining <= 0) return null;
     amount = d >= l.endDate ? st.remaining : Math.min(st.inst, st.remaining);
@@ -339,7 +356,7 @@ function pageLoan(id) {
   const facts = [
     ['Type', TYPE[l.type]],
     ['Amount lent', peso(l.principal)],
-    l.type === 'term' ? ['To pay back', `${peso(l.total)}<br><small>interest ${peso(l.total - l.principal)}</small>`] : ['Interest', `${peso(st.inst)} per ${per}`],
+    l.type === 'term' ? ['To pay back', `${peso(l.total)}<br><small>interest ${peso(l.total - l.principal)}</small>`] : ['Interest', `${peso(st.inst)} per ${per}${st.inst !== l.installment ? `<br><small>was ${peso(l.installment)}</small>` : ''}`],
     l.type === 'term' ? ['Payment', `${peso(st.inst)} per ${per}`] : null,
     ['Loan date', fmtDate(l.startDate)],
     ['First collection', fmtDate(l.firstDue)],
@@ -417,7 +434,8 @@ function pageLoanForm(id, borrowerId) {
       <label><input type="radio" name="frequency" value="weekly" ${v.frequency === 'weekly' ? 'checked' : ''}><span>Weekly</span></label>
     </div>
     <label class="field f-int"><span>Interest per <span class="per">week</span> (₱)</span>
-      <input name="interest" type="number" inputmode="numeric" min="100" step="100" value="${v.type === 'interest' && v.installment ? v.installment : ''}"></label>
+      <input name="interest" type="number" inputmode="numeric" min="100" step="100" value="${v.type === 'interest' && v.installment ? v.installment : ''}">
+      <small>On the full amount lent. It goes down automatically as the loan is paid back.</small></label>
     <div class="row2">
       <label class="field"><span>Loan date</span><input name="startDate" type="date" required value="${v.startDate}"></label>
       <label class="field"><span>First collection</span><input name="firstDue" type="date" required value="${v.firstDue}"></label>
@@ -740,7 +758,7 @@ const ACT = {
   },
   recordPayment: d => {
     const l = S.loans.get(d.loan);
-    amountSheet({ title: 'Record payment', loan: d.loan, date: today(), amount: installment(l), kind: 'installment', showDate: true, withPrincipal: l.type === 'interest' });
+    amountSheet({ title: 'Record payment', loan: d.loan, date: today(), amount: installment(l, today()), kind: 'installment', showDate: true, withPrincipal: l.type === 'interest' });
   },
   principalBack: d => amountSheet({ title: 'Principal paid back', loan: d.loan, date: today(), amount: loanStats(S.loans.get(d.loan)).remaining, kind: 'principal', showDate: true }),
   deletePayment: async d => {
