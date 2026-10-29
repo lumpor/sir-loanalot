@@ -1,6 +1,7 @@
 'use strict';
 const VERSION = '1.0.0';
 const BACKUP_EVERY_DAYS = 30; // remind about backups after this many days
+const DEFAULT_EMAIL = 'fabian.friberg@gmail.com'; // where backups go unless changed in the app
 
 /* ---------- small helpers ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -38,7 +39,7 @@ const fmtMonth = m => parseDate(m + '-01').toLocaleDateString('en-PH', { month: 
 const STORES = ['borrowers', 'loans', 'payments', 'photos', 'tenants', 'rent', 'meta'];
 const S = { borrowers: new Map(), loans: new Map(), payments: new Map(), tenants: new Map(), rent: new Map() };
 let db;
-let meta = { id: 'meta', email: '', lastBackup: null, hideInstall: false };
+let meta = { id: 'meta', email: DEFAULT_EMAIL, lastBackup: null, hideInstall: false };
 
 function openDB() {
   return new Promise((res, rej) => {
@@ -59,7 +60,7 @@ const req = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); 
 async function loadAll() {
   for (const k of Object.keys(S)) S[k] = new Map((await req(store(k).getAll())).map(o => [o.id, o]));
   const m = await req(store('meta').get('meta'));
-  if (m) meta = { ...meta, ...m };
+  if (m) meta = { ...meta, ...m, email: m.email || DEFAULT_EMAIL };
 }
 async function put(name, obj) {
   if (S[name]) S[name].set(obj.id, obj);
