@@ -671,7 +671,6 @@ function monthSummary(m) {
   const tenants = [...S.tenants.values()].filter(t => tenantInMonth(t, rm));
   const paid = tenants.filter(t => S.rent.has(rentId(t.id, rm)));
   const unpaid = tenants.filter(t => !S.rent.has(rentId(t.id, rm)));
-  const age = meta.lastBackup ? daysBetween(meta.lastBackup.slice(0, 10), t0) : null;
   return [
     `Horny Mafia — ${m === 'all' ? `All time (as of ${fmtDate(t0)})` : fmtMonth(m) + (m === monthOf(t0) ? ` (as of ${fmtDate(t0)})` : '')}`,
     '',
@@ -689,8 +688,6 @@ function monthSummary(m) {
     ...(m === 'all' ? [`Rent collected in total: ${peso(sum([...S.rent.values()], r => r.amount))}`] : []),
     `Rent paid${m === 'all' ? ` ${fmtMonth(rm)}` : ''}: ${peso(sum(paid, t => S.rent.get(rentId(t.id, rm)).amount))} of ${peso(sum(tenants, t => S.rent.get(rentId(t.id, rm))?.amount ?? t.rent))} (${paid.length} of ${tenants.length})`,
     unpaid.length ? `Not paid: ${unpaid.map(t => `${t.name} ${peso(t.rent)}`).join(', ')}` : 'Not paid: nobody',
-    '',
-    `Last export: ${age === null ? 'never' : age === 0 ? 'today' : `${age} days ago`}`,
   ].join('\n');
 }
 async function copyText(text) {
