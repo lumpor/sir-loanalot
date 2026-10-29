@@ -12,8 +12,8 @@
 // columns are only there for reading.
 
 const USERS = [
-  // { app: 'horny-mafia', name: 'Pedro', key: 'a-long-secret-code' },
-  // { app: 'king-of-baboy', name: 'Juan', key: 'another-long-secret-code' },
+  // { app: 'horny-mafia', name: 'Pedro', key: 'his password' },
+  // { app: 'king-of-baboy', name: 'Juan', key: 'another password' },
 ];
 // The status app uses this code. It can only read, never write.
 const VIEWER_KEY = 'PUT-SECRET-CODE-HERE';
@@ -26,10 +26,12 @@ function doPost(e) {
   lock.waitLock(30000);
   try {
     if (req.action === 'pullAll') {
-      if (req.key !== VIEWER_KEY || VIEWER_KEY === 'PUT-SECRET-CODE-HERE') return reply({ ok: false, error: 'wrong secret code' });
+      if (String(req.key || '').trim() !== VIEWER_KEY || VIEWER_KEY === 'PUT-SECRET-CODE-HERE') return reply({ ok: false, error: 'wrong secret code' });
       return reply({ ok: true, users: USERS.map(u => ({ app: u.app, name: u.name, data: pull(tabPrefix(u)) })) });
     }
-    const user = USERS.find(u => u.key === req.key && u.app === req.app);
+    // Passwords are not case sensitive, and spaces around them are ignored.
+    const given = String(req.key || '').trim().toLowerCase();
+    const user = USERS.find(u => u.key.trim().toLowerCase() === given && u.app === req.app);
     if (!user) return reply({ ok: false, error: 'wrong secret code' });
     if (req.action === 'push') { push(tabPrefix(user), req.ops || []); return reply({ ok: true, user: user.name }); }
     if (req.action === 'pull') return reply({ ok: true, user: user.name, data: pull(tabPrefix(user)) });

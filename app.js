@@ -300,7 +300,7 @@ function pageCollect(d) {
     return `<div class="item ${e.paid ? 'paid' : ''}">
       <a class="item-main" href="#loan/${l.id}"><b>${esc(bName(l))}</b><small>${info.join(' · ')}</small></a>${right}</div>`;
   }).join('');
-  return `${installTip()}
+  return `${syncPrompt()}${installTip()}
     <div class="datenav">
       <a class="btn ghost" href="#collect/${addDays(d, -1)}" aria-label="Previous day">‹</a>
       <input type="date" value="${d}" data-change="collectDate" aria-label="Collection date">
@@ -670,7 +670,8 @@ async function handleSetupLink() {
 }
 
 function syncInfoHtml() {
-  if (!SYNC_URL || !meta.syncKey) return '<p><b>Sync is not set up yet.</b></p><p><small>Open the setup link you were sent.</small></p>';
+  if (!SYNC_URL) return '<p><b>Sync is not available yet.</b></p>';
+  if (!meta.syncKey) return syncSetupForm();
   const last = meta.lastSync ? new Date(meta.lastSync).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
   return `<p class="${Sync.pending ? '' : 'ok'}"><b>${Sync.pending ? `${Sync.pending} change${Sync.pending === 1 ? '' : 's'} waiting to be sent` : 'Everything is synced ✓'}</b></p>
     ${Sync.pending && !navigator.onLine ? '<p><small>No internet right now. They will be sent automatically.</small></p>' : ''}
@@ -680,6 +681,36 @@ function syncInfoHtml() {
 function updateSyncInfo() {
   const el = $('#syncInfo');
   if (el) el.innerHTML = syncInfoHtml();
+}
+function syncSetupForm() {
+  return `<form data-form="syncSetup">
+    <p><b>Connect to the sheet</b></p>
+    <p><small>Enter the password you got. You only do this once.</small></p>
+    <label class="field"><input name="code" type="password" autocomplete="current-password" autocapitalize="none" placeholder="Password" required></label>
+    <button class="btn block" type="submit">Connect</button></form>`;
+}
+// Shown at the top of the main page until sync is connected.
+const syncPrompt = () => (SYNC_URL && !meta.syncKey ? `<div class="card tip">${syncSetupForm()}</div>` : '');
+
+async function connectSync(f) {
+  const code = new FormData(f).get('code').trim();
+  if (!code) return;
+  if (!navigator.onLine) return alert('Connect to the internet first.');
+  const before = meta.syncKey;
+  meta.syncKey = code;
+  let res;
+  try {
+    res = await syncPost({ action: 'pull' });
+  } catch (err) {
+    meta.syncKey = before;
+    return alert(err.message === 'wrong secret code' ? 'Wrong password. Check it and try again.' : `Could not connect: ${err.message}`);
+  }
+  await saveMeta();
+  // A new or reset phone gets its records back from the sheet.
+  if (!hasLocalData()) await applyPulled(res.data);
+  await queueEverything();
+  toast(`Connected as ${res.user} ✓`);
+  render();
 }
 function syncCard() {
   const on = SYNC_URL && meta.syncKey;
@@ -715,14 +746,19 @@ async function queueEverything() {
   for (const name of SYNCED) for (const o of S[name].values()) await enqueue(name, 'put', o.id, withNames(name, o));
 }
 
+const hasLocalData = () => SYNCED.some(name => S[name].size);
+async function applyPulled(data) {
+  await replaceFromSheet(SYNCED, data);
+  await loadAll();
+}
+
 async function loadFromSheet() {
   if (!navigator.onLine) return toast('No internet right now');
   toast('Loading from the sheet…', 15000);
   const { data } = await syncPost({ action: 'pull' });
   const n = k => (data[k] || []).length;
   if (!confirm(`Load from the sheet?\n\n${n('loans')} loans, ${n('payments')} payments, ${n('tenants')} boarders.\n\nEverything on this phone will be REPLACED (contract photos stay).`)) return;
-  await replaceFromSheet(SYNCED, data);
-  await loadAll();
+  await applyPulled(data);
   toast('Loaded ✓');
   go('#collect');
   render();
@@ -912,6 +948,7 @@ const ACT = {
 
 /* ---------- forms (data-form) ---------- */
 const FORMS = {
+  syncSetup: f => connectSync(f),
   loan: async f => {
     const v = readLoanForm(f);
     const fd = new FormData(f);
