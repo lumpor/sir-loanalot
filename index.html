@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f6b45">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Horny Mafia">
+<title>Horny Mafia</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header id="top">
+  <button id="back" data-act="back" hidden aria-label="Back">‹</button>
+  <h1 id="title">Horny Mafia</h1>
+</header>
+<main id="view"></main>
+<nav id="tabs">
+  <a href="#collect" data-tab="collect">
+    <svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z M4 7l2-3h12l2 3 M9 12h6"/></svg>Collect</a>
+  <a href="#loans" data-tab="loans">
+    <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6 M16 4.5a3.5 3.5 0 0 1 0 7 M18 14c2.2.6 3.5 2.7 3.5 6"/></svg>Loans</a>
+  <a href="#stats" data-tab="stats">
+    <svg viewBox="0 0 24 24"><path d="M4 20V10 M10 20V4 M16 20v-7 M22 20H2"/></svg>Stats</a>
+  <a href="#boarders" data-tab="boarders">
+    <svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7 M5 9.5V20h14V9.5 M10 20v-6h4v6"/></svg>Boarders</a>
+  <a href="#settings" data-tab="settings">
+    <svg viewBox="0 0 24 24"><path d="M12 3v12 M7 10l5 5 5-5 M4 17v3h16v-3"/></svg>Backup</a>
+</nav>
+<div id="sheet" hidden></div>
+<div id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
