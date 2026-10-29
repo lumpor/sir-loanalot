@@ -157,3 +157,4 @@ td a { text-decoration: none; }
 .badge.grey { background: var(--bg); color: var(--muted); }
 details summary { cursor: pointer; padding: 10px 4px; color: var(--brand); font-weight: 600; }
 form[data-mode="date"] .m-amt input, form[data-mode="amount"] .m-date input { background: var(--bg); color: var(--muted); }
+.btn .ic { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

@@ -15,6 +15,25 @@ const peso = n => {
   return '₱' + n.toLocaleString('en-PH', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 });
 };
 
+// Small line icons shown inside buttons.
+const ICONS = {
+  plus: '<path d="M12 5v14 M5 12h14"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+  cash: '<path d="M3 7h18v10H3z M6 10v4 M18 10v4"/><circle cx="12" cy="12" r="2.5"/>',
+  back: '<path d="M9 14l-5-5 5-5 M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z M14 6l4 4"/>',
+  lock: '<path d="M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 7 0v3"/>',
+  unlock: '<path d="M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 6.6-1.6"/>',
+  trash: '<path d="M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13 M10 11v6 M14 11v6"/>',
+  camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  image: '<path d="M4 5h16v14H4z M4 16l5-5 4 4 3-3 4 4"/><circle cx="9" cy="9" r="1.5"/>',
+  mail: '<path d="M3 6h18v12H3z M3 7l9 6 9-6"/>',
+  download: '<path d="M12 4v11 M7 10l5 5 5-5 M5 20h14"/>',
+  upload: '<path d="M12 15V4 M7 9l5-5 5 5 M5 20h14"/>',
+  personPlus: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6 M19 8v6 M16 11h6"/>',
+};
+const ic = name => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+
 /* ---------- dates (all stored as local 'YYYY-MM-DD' strings) ---------- */
 const pad = n => String(n).padStart(2, '0');
 const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -259,14 +278,14 @@ function backupBanner() {
   if (age !== null && age < BACKUP_EVERY_DAYS) return '';
   return `<div class="card alert"><b>⚠ ${age === null ? 'No export made yet' : `Last export was ${age} days ago`}</b>
     <p>If this phone is lost or reset, all records are gone. Please send an export.</p>
-    <a class="btn block" href="#settings">Export now</a></div>`;
+    <a class="btn block" href="#settings">${ic('mail')}Export now</a></div>`;
 }
 function installTip() {
   if (isStandalone() || meta.hideInstall) return '';
   return `<div class="card tip"><b>Add this app to your home screen</b>
     <p>${isIOS() ? 'In Safari tap the Share button, then “Add to Home Screen”.' : 'In Chrome tap the ⋮ menu, then “Install app” or “Add to Home screen”.'}
     Then always open it from the home screen icon.</p>
-    <div class="btns">${UI.installEvt ? '<button class="btn" data-act="install">Install now</button>' : ''}
+    <div class="btns">${UI.installEvt ? `<button class="btn" data-act="install">${ic('download')}Install now</button>` : ''}
     <button class="btn ghost" data-act="hideInstall">OK, got it</button></div></div>`;
 }
 
@@ -286,7 +305,7 @@ function pageCollect(d) {
     const right = e.paid
       ? `<button class="btn small paidbtn" data-act="unpay" data-loan="${l.id}" data-date="${d}">✓ ${peso(e.paid)}</button>`
       : `<button class="btn small ghost" data-act="payOther" data-loan="${l.id}" data-date="${d}" data-amount="${e.amount}">Other</button>
-         <button class="btn small" data-act="pay" data-loan="${l.id}" data-date="${d}" data-amount="${e.amount}">Paid ${peso(e.amount)}</button>`;
+         <button class="btn small" data-act="pay" data-loan="${l.id}" data-date="${d}" data-amount="${e.amount}">${ic('check')}Paid ${peso(e.amount)}</button>`;
     return `<div class="item ${e.paid ? 'paid' : ''}">
       <a class="item-main" href="#loan/${l.id}"><b>${esc(bName(l))}</b><small>${info.join(' · ')}</small></a>${right}</div>`;
   }).join('');
@@ -304,7 +323,7 @@ function pageCollect(d) {
     </div>
     ${entries.length ? `<div class="list">${rows}</div>`
       : `<div class="list"><div class="empty">${dayOfWeek(d) === 0 ? 'Sunday — no daily collections.' : 'Nothing to collect on this day.'}</div></div>`}
-    <a class="btn ghost block" href="#loan-new">+ New loan</a>`;
+    <a class="btn ghost block" href="#loan-new">${ic('plus')}New loan</a>`;
 }
 
 /* ---------- page: loans / borrowers ---------- */
@@ -319,7 +338,7 @@ function pageLoans() {
       <a class="item-main" href="#borrower/${r.b.id}"><b>${esc(r.b.name)}</b>
       <small>${r.active.length ? `${r.active.length} active loan${r.active.length > 1 ? 's' : ''} · ${peso(r.remaining)} to collect` : 'No active loans'}</small></a>
       ${r.behind > 0 ? `<span class="badge bad">behind ${peso(r.behind)}</span>` : ''}</div>`).join('');
-  return `<div class="btns"><a class="btn" href="#loan-new">+ New loan</a><button class="btn ghost" data-act="newBorrower">+ New borrower</button></div>
+  return `<div class="btns"><a class="btn" href="#loan-new">${ic('plus')}New loan</a><button class="btn ghost" data-act="newBorrower">${ic('personPlus')}New borrower</button></div>
     ${rows.length > 6 ? '<input type="search" placeholder="Search name…" data-input="filterNames" style="margin-bottom:12px">' : ''}
     <div class="list" id="names">${list || '<div class="empty">No borrowers yet. Tap “New loan” to start.</div>'}</div>`;
 }
@@ -339,12 +358,12 @@ function pageBorrower(id) {
   setHeader(b.name, '#loans');
   const loans = loansOf(id);
   const active = loans.filter(l => !l.closed), closed = loans.filter(l => l.closed);
-  return `<div class="btns"><a class="btn" href="#loan-new/${id}">+ New loan for ${esc(b.name)}</a></div>
+  return `<div class="btns"><a class="btn" href="#loan-new/${id}">${ic('plus')}New loan for ${esc(b.name)}</a></div>
     <h2>Active loans</h2>
     <div class="list">${active.map(loanLine).join('') || '<div class="empty">No active loans</div>'}</div>
     ${closed.length ? `<h2>Closed loans</h2><div class="list">${closed.map(loanLine).join('')}</div>` : ''}
-    <div class="btns"><button class="btn ghost" data-act="renameBorrower" data-id="${id}">Rename</button>
-    <button class="btn danger" data-act="deleteBorrower" data-id="${id}">Delete</button></div>`;
+    <div class="btns"><button class="btn ghost" data-act="renameBorrower" data-id="${id}">${ic('edit')}Rename</button>
+    <button class="btn danger" data-act="deleteBorrower" data-id="${id}">${ic('trash')}Delete</button></div>`;
 }
 
 /* ---------- page: loan detail ---------- */
@@ -379,25 +398,25 @@ function pageLoan(id) {
       <div class="facts">${facts.map(([k, v]) => `<div><small>${k}</small><b>${v}</b></div>`).join('')}</div>
     </div>
     <div class="btns">
-      <button class="btn" data-act="recordPayment" data-loan="${l.id}">Record payment</button>
-      ${l.type === 'interest' && !l.closed ? `<button class="btn ghost" data-act="principalBack" data-loan="${l.id}">Principal paid back</button>` : ''}
+      <button class="btn" data-act="recordPayment" data-loan="${l.id}">${ic('cash')}Record payment</button>
+      ${l.type === 'interest' && !l.closed ? `<button class="btn ghost" data-act="principalBack" data-loan="${l.id}">${ic('back')}Principal paid back</button>` : ''}
     </div>
     <h2>Notes</h2>
     <div class="card">${l.notes ? esc(l.notes).replace(/\n/g, '<br>') : '<span class="muted">No notes</span>'}
-      <button class="btn small ghost block" data-act="editNotes" data-loan="${l.id}">${l.notes ? 'Edit notes' : 'Add note'}</button></div>
+      <button class="btn small ghost block" data-act="editNotes" data-loan="${l.id}">${ic('edit')}${l.notes ? 'Edit notes' : 'Add note'}</button></div>
     <h2>Contract photos</h2>
     <div class="card"><div class="photos" id="photos"><small>Loading…</small></div>
       <div class="btns">
-        <label class="btn ghost">📷 Take photo<input type="file" accept="image/*" capture="environment" data-change="photo" data-loan="${l.id}" hidden></label>
-        <label class="btn ghost">From gallery<input type="file" accept="image/*" data-change="photo" data-loan="${l.id}" hidden></label>
+        <label class="btn ghost">${ic('camera')}Take photo<input type="file" accept="image/*" capture="environment" data-change="photo" data-loan="${l.id}" hidden></label>
+        <label class="btn ghost">${ic('image')}From gallery<input type="file" accept="image/*" data-change="photo" data-loan="${l.id}" hidden></label>
       </div></div>
     <h2>Payments (${pays.length})</h2>
     <div class="list">${pays.slice(0, 15).map(payRow).join('') || '<div class="empty">No payments yet</div>'}</div>
     ${pays.length > 15 ? `<details><summary>Show all ${pays.length} payments</summary><div class="list">${pays.slice(15).map(payRow).join('')}</div></details>` : ''}
     <div class="btns">
-      <a class="btn ghost" href="#loan-edit/${l.id}">Edit loan</a>
-      <button class="btn ghost" data-act="toggleClosed" data-loan="${l.id}">${l.closed ? 'Reopen loan' : 'Close loan'}</button>
-      <button class="btn danger" data-act="deleteLoan" data-loan="${l.id}">Delete loan</button>
+      <a class="btn ghost" href="#loan-edit/${l.id}">${ic('edit')}Edit loan</a>
+      <button class="btn ghost" data-act="toggleClosed" data-loan="${l.id}">${ic(l.closed ? 'unlock' : 'lock')}${l.closed ? 'Reopen loan' : 'Close loan'}</button>
+      <button class="btn danger" data-act="deleteLoan" data-loan="${l.id}">${ic('trash')}Delete loan</button>
     </div>`;
 }
 
@@ -554,7 +573,7 @@ function pageBoarders(month) {
     return `<div class="item ${p ? 'paid' : ''}">
       <a class="item-main" href="javascript:" data-act="editTenant" data-id="${t.id}"><b>${esc(t.name)}</b><small>${peso(t.rent)} · ${status}</small></a>
       ${p ? `<button class="btn small paidbtn" data-act="unpayRent" data-id="${t.id}" data-month="${month}">✓ ${peso(p.amount)}</button>`
-          : `<button class="btn small" data-act="payRent" data-id="${t.id}" data-month="${month}">Paid</button>`}</div>`;
+          : `<button class="btn small" data-act="payRent" data-id="${t.id}" data-month="${month}">${ic('check')}Paid</button>`}</div>`;
   }).join('');
   const expected = sum(here, t => S.rent.get(rentId(t.id, month))?.amount ?? t.rent);
   const collected = sum(here, t => S.rent.get(rentId(t.id, month))?.amount || 0);
@@ -569,7 +588,7 @@ function pageBoarders(month) {
       <div class="big">${peso(collected)} <small>of ${peso(expected)}</small></div>
       <div class="bar"><i style="width:${expected ? Math.min(100, collected / expected * 100) : 0}%"></i></div></div>
     <div class="list">${rows || '<div class="empty">No boarders this month</div>'}</div>
-    <button class="btn block" data-act="editTenant">+ Add boarder</button>
+    <button class="btn block" data-act="editTenant">${ic('personPlus')}Add boarder</button>
     ${others.length ? `<details><summary>Other boarders (${others.length})</summary><div class="list">
       ${others.map(t => `<div class="item"><a class="item-main" href="javascript:" data-act="editTenant" data-id="${t.id}"><b>${esc(t.name)}</b>
         <small>${fmtDate(t.startDate)} – ${t.endDate ? fmtDate(t.endDate) : 'ongoing'}</small></a></div>`).join('')}</div></details>` : ''}`;
@@ -590,7 +609,7 @@ function tenantSheet(id) {
       <label class="field"><span>End date (optional)</span><input name="endDate" type="date" value="${t.endDate || ''}"></label>
     </div>
     <button class="btn block" type="submit">Save</button>
-    ${id ? `<button class="btn danger block" type="button" data-act="deleteTenant" data-id="${id}">Delete boarder</button>` : ''}
+    ${id ? `<button class="btn danger block" type="button" data-act="deleteTenant" data-id="${id}">${ic('trash')}Delete boarder</button>` : ''}
   </form>`);
 }
 
@@ -614,19 +633,19 @@ function pageSettings() {
       <p class="${age === null || age >= BACKUP_EVERY_DAYS ? 'bad' : 'ok'}"><b>${age === null ? 'No export made yet' : age === 0 ? 'Last export: today' : `Last export: ${age} day${age === 1 ? '' : 's'} ago`}</b></p>
       <label class="field"><span>Send exports to</span>
         <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com" value="${esc(meta.email)}" data-change="email"></label>
-      <button class="btn block" data-act="sendBackup">Send export</button>
+      <button class="btn block" data-act="sendBackup">${ic('mail')}Send export</button>
       <p><small>Pick Gmail (or another mail app) in the list that opens. The address above is copied — paste it into “To”.
         <span id="backupSize"></span></small></p>
-      <button class="btn ghost block" data-act="saveBackup">Save export file on this phone</button>
+      <button class="btn ghost block" data-act="saveBackup">${ic('download')}Save export file on this phone</button>
     </div>
     <h2>Import</h2>
     <div class="card"><p><small>Load an export file. This <b>replaces</b> everything currently in the app.</small></p>
-      <label class="btn ghost block">Import from file<input type="file" accept=".txt,.json,text/plain,application/json" data-change="restore" hidden></label></div>
+      <label class="btn ghost block">${ic('upload')}Import from file<input type="file" accept=".txt,.json,text/plain,application/json" data-change="restore" hidden></label></div>
     <h2>App</h2>
     <div class="card">
       ${isStandalone() ? '<p class="ok">Installed on home screen ✓</p>'
         : `<p><b>Not installed yet.</b> ${isIOS() ? 'In Safari tap Share → “Add to Home Screen”.' : 'In Chrome tap ⋮ → “Install app”.'}</p>
-           ${UI.installEvt ? '<button class="btn block" data-act="install">Install now</button>' : ''}`}
+           ${UI.installEvt ? `<button class="btn block" data-act="install">${ic('download')}Install now</button>` : ''}`}
       <p><small id="storageInfo"></small></p>
       <p><small>${S.borrowers.size} borrowers · ${S.loans.size} loans · ${S.payments.size} payments · ${S.tenants.size} boarders · version ${VERSION}</small></p>
     </div>`;
@@ -705,7 +724,7 @@ async function viewPhoto(id) {
   const u = URL.createObjectURL(p.blob);
   const v = document.createElement('div');
   v.className = 'viewer';
-  v.innerHTML = `<div class="vbar"><button class="btn danger small" data-act="deletePhoto" data-id="${id}" data-loan="${p.loanId}">Delete</button>
+  v.innerHTML = `<div class="vbar"><button class="btn danger small" data-act="deletePhoto" data-id="${id}" data-loan="${p.loanId}">${ic('trash')}Delete</button>
     <button class="btn small" data-act="closeViewer">Close</button></div>
     <div class="vimg" data-act="zoomPhoto"><img src="${u}" alt="Contract photo"></div>`;
   v.dataset.url = u;
