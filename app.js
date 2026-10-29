@@ -98,16 +98,30 @@ function countDue(l, upto) {
   return c;
 }
 
-function defaultInstallment(l) {
-  if (l.type === 'term') {
-    const n = countDue(l, l.endDate);
-    return n > 0 ? Math.ceil(l.total / n) : l.total;
-  }
-  // rate is % per month; spread over 313 collection days (Mon–Sat) or 52 weeks a year
-  const perYear = l.principal * (l.rate / 100) * 12;
-  return Math.round(perYear / (l.frequency === 'weekly' ? 52 : 313));
+// Date of the n-th collection (1 = first), skipping Sundays for daily loans.
+function nthCollectionDay(firstDue, freq, n) {
+  if (freq === 'weekly') return addDays(firstDue, 7 * (n - 1));
+  let d = firstDue;
+  if (dayOfWeek(d) === 0) d = addDays(d, 1);
+  for (let i = 1; i < n; i++) { d = addDays(d, 1); if (dayOfWeek(d) === 0) d = addDays(d, 1); }
+  return d;
 }
-const installment = l => (l.installment > 0 ? l.installment : defaultInstallment(l));
+
+// Fixed-term plan from either a last repay date or an amount per payment.
+// Payments are whole ₱100s, so a date-based plan rounds the payment up and may finish a bit earlier.
+function planTerm({ total, frequency, firstDue, mode, endDate, installment }) {
+  if (!(total > 0) || !firstDue) return null;
+  let inst = installment;
+  if (mode === 'date') {
+    if (!endDate || endDate < firstDue) return null;
+    const n = countDue({ type: 'term', frequency, firstDue, endDate }, endDate);
+    inst = Math.ceil(total / n / 100) * 100;
+  }
+  if (!(inst > 0)) return null;
+  const n = Math.ceil(total / inst);
+  return { installment: inst, n, endDate: nthCollectionDay(firstDue, frequency, n), last: total - inst * (n - 1) };
+}
+const installment = l => l.installment || 0;
 
 const isRegular = p => p.kind !== 'principal';
 function interestOf(p, l) {
@@ -324,8 +338,8 @@ function pageLoan(id) {
   const facts = [
     ['Type', TYPE[l.type]],
     ['Amount lent', peso(l.principal)],
-    l.type === 'term' ? ['To pay back', `${peso(l.total)}<br><small>interest ${peso(l.total - l.principal)}</small>`] : ['Interest rate', `${l.rate}% per month`],
-    ['Payment', `${peso(st.inst)} per ${per}`],
+    l.type === 'term' ? ['To pay back', `${peso(l.total)}<br><small>interest ${peso(l.total - l.principal)}</small>`] : ['Interest', `${peso(st.inst)} per ${per}`],
+    l.type === 'term' ? ['Payment', `${peso(st.inst)} per ${per}`] : null,
     ['Loan date', fmtDate(l.startDate)],
     ['First collection', fmtDate(l.firstDue)],
     l.type === 'term' ? ['Last repay date', fmtDate(l.endDate)] : null,
@@ -378,7 +392,7 @@ function pageLoanForm(id, borrowerId) {
   const borrowers = [...S.borrowers.values()].sort((a, b) => a.name.localeCompare(b.name));
   const sel = v.borrowerId || (borrowers.length ? '' : '__new');
   UI.after = () => updateLoanCalc($('form[data-form=loan]'));
-  return `<form class="card" data-form="loan" data-type="${v.type}" data-id="${l ? l.id : ''}" data-new="${l ? '' : '1'}">
+  return `<form class="card" data-form="loan" data-type="${v.type}" data-mode="${v.mode === 'amount' ? 'amount' : 'date'}" data-id="${l ? l.id : ''}" data-new="${l ? '' : '1'}">
     <label class="field"><span>Borrower</span>
       <select name="borrower" required data-change="borrowerSelect">
         <option value="" ${sel === '' ? 'selected' : ''} disabled>Choose…</option>
@@ -392,25 +406,28 @@ function pageLoanForm(id, borrowerId) {
       <label><input type="radio" name="type" value="interest" ${v.type === 'interest' ? 'checked' : ''}><span>Interest only</span></label>
     </div>
     <label class="field"><span>Amount lent (₱)</span>
-      <input name="principal" type="number" inputmode="decimal" min="1" step="any" required value="${v.principal ?? ''}"></label>
+      <input name="principal" type="number" inputmode="numeric" min="100" step="100" required value="${v.principal ?? ''}"></label>
     <label class="field f-term"><span>Total to be paid back (₱)</span>
-      <input name="total" type="number" inputmode="decimal" min="0" step="any" value="${v.total ?? ''}">
+      <input name="total" type="number" inputmode="numeric" min="100" step="100" value="${v.total || ''}">
       <small>Amount lent + interest</small></label>
-    <label class="field f-int"><span>Interest rate (% per month)</span>
-      <input name="rate" type="number" inputmode="decimal" min="0" step="any" value="${v.rate ?? ''}"></label>
     <span class="field" style="display:block"><b style="font-size:14px">Payments</b></span>
     <div class="seg">
       <label><input type="radio" name="frequency" value="daily" ${v.frequency === 'daily' ? 'checked' : ''}><span>Daily (Mon–Sat)</span></label>
       <label><input type="radio" name="frequency" value="weekly" ${v.frequency === 'weekly' ? 'checked' : ''}><span>Weekly</span></label>
     </div>
+    <label class="field f-int"><span>Interest per <span class="per">week</span> (₱)</span>
+      <input name="interest" type="number" inputmode="numeric" min="100" step="100" value="${v.type === 'interest' && v.installment ? v.installment : ''}"></label>
     <div class="row2">
       <label class="field"><span>Loan date</span><input name="startDate" type="date" required value="${v.startDate}"></label>
       <label class="field"><span>First collection</span><input name="firstDue" type="date" required value="${v.firstDue}"></label>
     </div>
-    <label class="field f-term"><span>Last repay date</span><input name="endDate" type="date" value="${v.endDate || ''}"></label>
-    <label class="field"><span>Amount per payment (₱)</span>
-      <input name="installment" type="number" inputmode="decimal" min="0" step="any" value="${v.installment > 0 ? v.installment : ''}">
-      <small>Leave empty to use the calculated amount.</small></label>
+    <div class="seg f-term">
+      <label><input type="radio" name="mode" value="date" ${v.mode !== 'amount' ? 'checked' : ''}><span>Set last date</span></label>
+      <label><input type="radio" name="mode" value="amount" ${v.mode === 'amount' ? 'checked' : ''}><span>Set amount</span></label>
+    </div>
+    <label class="field f-term m-date"><span>Last repay date</span><input name="endDate" type="date" value="${v.type === 'term' ? v.endDate || '' : ''}"></label>
+    <label class="field f-term m-amt"><span>Amount per <span class="per">day</span> (₱)</span>
+      <input name="installment" type="number" inputmode="numeric" min="100" step="100" value="${v.type === 'term' && v.installment ? v.installment : ''}"></label>
     <div class="calc" id="loanCalc"></div>
     <label class="field"><span>Notes</span><textarea name="notes">${esc(v.notes || '')}</textarea></label>
     <button class="btn block" type="submit">${l ? 'Save changes' : 'Save loan'}</button>
@@ -420,38 +437,39 @@ function pageLoanForm(id, borrowerId) {
 function readLoanForm(f) {
   const fd = new FormData(f);
   return {
-    type: fd.get('type'), frequency: fd.get('frequency'),
-    principal: num(fd.get('principal')), total: num(fd.get('total')), rate: num(fd.get('rate')),
+    type: fd.get('type'), frequency: fd.get('frequency'), mode: fd.get('mode'),
+    principal: num(fd.get('principal')), total: num(fd.get('total')), interest: num(fd.get('interest')),
     startDate: fd.get('startDate'), firstDue: fd.get('firstDue'), endDate: fd.get('endDate') || null,
-    installment: num(fd.get('installment')) || null, notes: (fd.get('notes') || '').trim(),
+    installment: num(fd.get('installment')), notes: (fd.get('notes') || '').trim(),
   };
 }
+const isHundreds = n => n > 0 && n % 100 === 0;
 
 function updateLoanCalc(f) {
   if (!f) return;
   const v = readLoanForm(f);
   f.dataset.type = v.type;
-  const calc = $('#loanCalc');
-  const per = v.frequency === 'weekly' ? 'per week' : 'per day (Mon–Sat)';
-  const inst = $('input[name=installment]', f);
-  let text = '';
+  f.dataset.mode = v.mode;
+  const per = v.frequency === 'weekly' ? 'week' : 'day';
+  f.querySelectorAll('.per').forEach(el => { el.textContent = per; });
+  let text;
   if (v.type === 'term') {
-    if (v.principal > 0 && v.total > 0 && v.endDate && v.firstDue && v.endDate >= v.firstDue) {
-      const n = countDue(v, v.endDate);
-      const d = defaultInstallment(v);
-      inst.placeholder = d;
-      const interest = v.total - v.principal;
-      text = `Interest: <b>${peso(interest)}</b> (${round2(interest / v.principal * 100)}%)<br>
-        ${n} payment${n === 1 ? '' : 's'} → <b>${peso(installment(v))} ${per}</b>`;
-    } else text = 'Enter amount lent, total to pay back and last repay date.';
-  } else {
-    if (v.principal > 0 && v.rate > 0) {
-      inst.placeholder = defaultInstallment(v);
-      text = `Interest per month: <b>${peso(v.principal * v.rate / 100)}</b><br>
-        → <b>${peso(installment(v))} ${per}</b><br>The ${peso(v.principal)} is paid back separately.`;
-    } else text = 'Enter amount lent and interest rate.';
-  }
-  calc.innerHTML = text;
+    const plan = planTerm(v);
+    if (!(v.principal > 0 && v.total > 0)) text = 'Enter amount lent and total to pay back.';
+    else if (!plan) text = v.mode === 'date' ? 'Enter the last repay date.' : `Enter the amount per ${per}.`;
+    else {
+      // fill in the other field so he can see the result of either choice
+      if (v.mode === 'date') f.installment.value = plan.installment; else f.endDate.value = plan.endDate;
+      text = `Interest: <b>${peso(v.total - v.principal)}</b><br>
+        <b>${peso(plan.installment)} per ${per}${v.frequency === 'daily' ? ' (Mon–Sat)' : ''}</b>, ${plan.n} payment${plan.n === 1 ? '' : 's'}
+        ${plan.last !== plan.installment ? ` (last one ${peso(plan.last)})` : ''}<br>
+        Last payment: <b>${fmtDate(plan.endDate)}</b>`;
+    }
+  } else if (v.principal > 0 && v.interest > 0) {
+    const perMonth = v.frequency === 'weekly' ? v.interest * 52 / 12 : v.interest * 313 / 12;
+    text = `About <b>${peso(Math.round(perMonth))}</b> interest per month.<br>The ${peso(v.principal)} is paid back separately.`;
+  } else text = `Enter amount lent and interest per ${per}.`;
+  $('#loanCalc').innerHTML = text;
 }
 
 /* ---------- page: stats ---------- */
@@ -543,7 +561,7 @@ function tenantSheet(id) {
     <h3>${id ? 'Edit boarder' : 'New boarder'}</h3>
     <label class="field"><span>Name</span><input name="name" required value="${esc(t.name)}" autocomplete="off"></label>
     <div class="row2">
-      <label class="field"><span>Rent per month (₱)</span><input name="rent" type="number" inputmode="decimal" min="0" step="any" required value="${t.rent}"></label>
+      <label class="field"><span>Rent per month (₱)</span><input name="rent" type="number" inputmode="numeric" min="0" step="100" required value="${t.rent}"></label>
       <label class="field"><span>Pay day</span><input name="payDay" type="number" inputmode="numeric" min="1" max="31" required value="${t.payDay}">
         <small>Day of the month</small></label>
     </div>
@@ -683,7 +701,7 @@ function amountSheet({ title, loan, date, amount, kind, showDate }) {
   openSheet(`<form data-form="payment">
     <h3>${title}</h3>
     <input type="hidden" name="loan" value="${loan}"><input type="hidden" name="kind" value="${kind}">
-    <label class="field"><span>Amount (₱)</span><input name="amount" type="number" inputmode="decimal" min="0" step="any" required value="${amount}"></label>
+    <label class="field"><span>Amount (₱)</span><input name="amount" type="number" inputmode="numeric" min="100" step="100" required value="${amount}"></label>
     <label class="field" ${showDate ? '' : 'hidden'}><span>Date</span><input name="date" type="date" required value="${date}"></label>
     <button class="btn block" type="submit">Save payment</button></form>`);
   setTimeout(() => $('#sheet input[name=amount]')?.select(), 60);
@@ -809,16 +827,22 @@ const FORMS = {
     const fd = new FormData(f);
     let borrowerId = fd.get('borrower');
     if (!borrowerId) return alert('Choose a borrower.');
-    if (v.principal <= 0) return alert('Enter the amount lent.');
+    if (!isHundreds(v.principal)) return alert('Amount lent must be in whole ₱100s.');
     if (v.firstDue < v.startDate) return alert('First collection cannot be before the loan date.');
     if (v.type === 'term') {
+      if (!isHundreds(v.total)) return alert('Total to pay back must be in whole ₱100s.');
       if (v.total < v.principal) return alert('Total to pay back must be at least the amount lent.');
-      if (!v.endDate || v.endDate < v.firstDue) return alert('Last repay date must be on or after the first collection.');
+      if (v.mode === 'amount' && !isHundreds(v.installment)) return alert('Amount per payment must be in whole ₱100s.');
+      const plan = planTerm(v);
+      if (!plan) return alert(v.mode === 'date' ? 'Last repay date must be on or after the first collection.' : 'Enter the amount per payment.');
+      v.installment = plan.installment;
+      v.endDate = plan.endDate;
     } else {
-      if (v.rate <= 0 && !v.installment) return alert('Enter the interest rate.');
-      v.endDate = null; v.total = 0;
+      if (!isHundreds(v.interest)) return alert('Interest must be in whole ₱100s.');
+      v.installment = v.interest;
+      v.endDate = null; v.total = 0; v.mode = null;
     }
-    if (v.type === 'term') v.rate = 0;
+    delete v.interest;
     if (borrowerId === '__new') {
       const name = (fd.get('newName') || '').trim();
       if (!name) return alert('Enter the borrower’s name.');
@@ -835,7 +859,7 @@ const FORMS = {
   payment: async f => {
     const fd = new FormData(f);
     const amount = num(fd.get('amount'));
-    if (amount <= 0) return alert('Enter an amount.');
+    if (!isHundreds(amount)) return alert('Enter an amount in whole ₱100s.');
     await addPayment(fd.get('loan'), fd.get('date'), amount, fd.get('kind'));
     closeSheet(); render();
   },
@@ -921,6 +945,10 @@ document.addEventListener('input', e => {
         const fd = new FormData(f);
         if (fd.get('startDate')) f.firstDue.value = nextCollectionDay(fd.get('startDate'), fd.get('frequency'));
       }
+    }
+    // Typing in either the last date or the amount per payment makes that one the one that counts.
+    if (el.name === 'endDate' || el.name === 'installment') {
+      $(`input[name=mode][value=${el.name === 'endDate' ? 'date' : 'amount'}]`, f).checked = true;
     }
     updateLoanCalc(f);
   }
