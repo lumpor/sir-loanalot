@@ -15,7 +15,7 @@ const USERS = [
   // { app: 'horny-mafia', name: 'Pedro', key: 'his password' },
   // { app: 'king-of-baboy', name: 'Juan', key: 'another password' },
 ];
-// The status app uses this code. It can only read, never write.
+// Bohol Watch Tower uses this password. It can only read, never write.
 const VIEWER_KEY = 'PUT-SECRET-CODE-HERE';
 const PREFIX = { 'horny-mafia': 'HM', 'king-of-baboy': 'Baboy' };
 
@@ -26,7 +26,7 @@ function doPost(e) {
   lock.waitLock(30000);
   try {
     if (req.action === 'pullAll') {
-      if (String(req.key || '').trim() !== VIEWER_KEY || VIEWER_KEY === 'PUT-SECRET-CODE-HERE') return reply({ ok: false, error: 'wrong secret code' });
+      if (String(req.key || '').trim().toLowerCase() !== VIEWER_KEY.trim().toLowerCase() || VIEWER_KEY === 'PUT-SECRET-CODE-HERE') return reply({ ok: false, error: 'wrong secret code' });
       return reply({ ok: true, users: USERS.map(u => ({ app: u.app, name: u.name, data: pull(tabPrefix(u)) })) });
     }
     // Passwords are not case sensitive, and spaces around them are ignored.

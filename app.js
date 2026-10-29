@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 /* ---------- small helpers ---------- */
 const $ = (s, el = document) => el.querySelector(s);
@@ -1094,6 +1094,17 @@ document.addEventListener('visibilitychange', () => {
   if ($('#sheet').hidden) render();
   scheduleSync(100);
 });
+
+// Offer the newer version as soon as the service worker has downloaded it.
+function showUpdateBar() {
+  if (document.getElementById('updateBar')) return;
+  const b = document.createElement('button');
+  b.id = 'updateBar';
+  b.textContent = 'New version available — tap to update';
+  b.addEventListener('click', () => location.reload());
+  document.body.appendChild(b);
+}
+navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type === 'update-ready') showUpdateBar(); });
 
 (async function init() {
   try {

@@ -158,3 +158,10 @@ td a { text-decoration: none; }
 details summary { cursor: pointer; padding: 10px 4px; color: var(--brand); font-weight: 600; }
 form[data-mode="date"] .m-amt input, form[data-mode="amount"] .m-date input { background: var(--bg); color: var(--muted); }
 .btn .ic { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+#updateBar {
+  position: fixed; left: 16px; right: 16px; z-index: 40; max-width: 480px; margin: 0 auto;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px);
+  padding: 14px 16px; border: 0; border-radius: 12px; background: var(--brand); color: #fff;
+  font: inherit; font-weight: 700; box-shadow: 0 4px 16px rgba(0,0,0,.25); cursor: pointer;
+}
