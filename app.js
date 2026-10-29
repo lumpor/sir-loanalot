@@ -257,9 +257,9 @@ function backupBanner() {
   if (!hasData) return '';
   const age = meta.lastBackup ? daysBetween(meta.lastBackup.slice(0, 10), today()) : null;
   if (age !== null && age < BACKUP_EVERY_DAYS) return '';
-  return `<div class="card alert"><b>⚠ ${age === null ? 'No backup made yet' : `Last backup was ${age} days ago`}</b>
-    <p>If this phone is lost or reset, all records are gone. Please send a backup.</p>
-    <a class="btn block" href="#settings">Back up now</a></div>`;
+  return `<div class="card alert"><b>⚠ ${age === null ? 'No export made yet' : `Last export was ${age} days ago`}</b>
+    <p>If this phone is lost or reset, all records are gone. Please send an export.</p>
+    <a class="btn block" href="#settings">Export now</a></div>`;
 }
 function installTip() {
   if (isStandalone() || meta.hideInstall) return '';
@@ -596,32 +596,32 @@ function tenantSheet(id) {
 
 /* ---------- page: backup / settings ---------- */
 function pageSettings() {
-  setHeader('Backup & settings');
+  setHeader('Export & settings');
   const age = meta.lastBackup ? daysBetween(meta.lastBackup.slice(0, 10), today()) : null;
   UI.prepared = null;
   UI.after = async () => {
     const text = await exportData();
     UI.prepared = text;
     const el = $('#backupSize');
-    if (el) el.textContent = `Backup size: ${(text.length / 1048576).toFixed(1)} MB`;
+    if (el) el.textContent = `Export size: ${(text.length / 1048576).toFixed(1)} MB`;
     const est = await navigator.storage?.estimate?.();
     const persisted = await navigator.storage?.persisted?.();
     const s = $('#storageInfo');
     if (s) s.textContent = `${persisted ? 'Storage is protected.' : 'Storage may be cleared by the phone if space runs low.'}${est ? ` Using ${(est.usage / 1048576).toFixed(1)} MB.` : ''}`;
   };
-  return `<h2>Send backup by e-mail</h2>
+  return `<h2>Send export by e-mail</h2>
     <div class="card">
-      <p class="${age === null || age >= BACKUP_EVERY_DAYS ? 'bad' : 'ok'}"><b>${age === null ? 'No backup made yet' : age === 0 ? 'Last backup: today' : `Last backup: ${age} day${age === 1 ? '' : 's'} ago`}</b></p>
-      <label class="field"><span>Send backups to</span>
+      <p class="${age === null || age >= BACKUP_EVERY_DAYS ? 'bad' : 'ok'}"><b>${age === null ? 'No export made yet' : age === 0 ? 'Last export: today' : `Last export: ${age} day${age === 1 ? '' : 's'} ago`}</b></p>
+      <label class="field"><span>Send exports to</span>
         <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com" value="${esc(meta.email)}" data-change="email"></label>
-      <button class="btn block" data-act="sendBackup">Send backup</button>
+      <button class="btn block" data-act="sendBackup">Send export</button>
       <p><small>Pick Gmail (or another mail app) in the list that opens. The address above is copied — paste it into “To”.
         <span id="backupSize"></span></small></p>
-      <button class="btn ghost block" data-act="saveBackup">Save backup file on this phone</button>
+      <button class="btn ghost block" data-act="saveBackup">Save export file on this phone</button>
     </div>
-    <h2>Restore</h2>
-    <div class="card"><p><small>Load a backup file. This <b>replaces</b> everything currently in the app.</small></p>
-      <label class="btn ghost block">Restore from backup file<input type="file" accept=".txt,.json,text/plain,application/json" data-change="restore" hidden></label></div>
+    <h2>Import</h2>
+    <div class="card"><p><small>Load an export file. This <b>replaces</b> everything currently in the app.</small></p>
+      <label class="btn ghost block">Import from file<input type="file" accept=".txt,.json,text/plain,application/json" data-change="restore" hidden></label></div>
     <h2>App</h2>
     <div class="card">
       ${isStandalone() ? '<p class="ok">Installed on home screen ✓</p>'
@@ -643,7 +643,7 @@ async function exportData() {
   });
 }
 // Backups use .txt because Android's share sheet refuses .json files.
-const backupFile = () => new File([UI.prepared], `hornymafia-backup-${today()}.txt`, { type: 'text/plain' });
+const backupFile = () => new File([UI.prepared], `hornymafia-export-${today()}.txt`, { type: 'text/plain' });
 
 function downloadFile(file) {
   const a = document.createElement('a');
@@ -659,10 +659,10 @@ async function backupDone() {
 
 async function importBackup(file) {
   let data;
-  try { data = JSON.parse(await file.text()); } catch { return alert('This is not a valid backup file.'); }
-  if (data?.app !== 'sir-loanalot') return alert('This is not a Horny Mafia backup file.');
+  try { data = JSON.parse(await file.text()); } catch { return alert('This is not a valid export file.'); }
+  if (data?.app !== 'sir-loanalot') return alert('This is not a Horny Mafia export file.');
   const when = new Date(data.exportedAt).toLocaleString('en-PH');
-  if (!confirm(`Restore backup from ${when}?\n\n${data.loans.length} loans, ${data.payments.length} payments, ${data.tenants.length} boarders.\n\nEverything currently in the app will be REPLACED.`)) return;
+  if (!confirm(`Import data exported on ${when}?\n\n${data.loans.length} loans, ${data.payments.length} payments, ${data.tenants.length} boarders.\n\nEverything currently in the app will be REPLACED.`)) return;
   const photos = await Promise.all((data.photos || []).map(async p => ({ id: p.id, loanId: p.loanId, createdAt: p.createdAt, blob: await (await fetch(p.data)).blob() })));
   const t = db.transaction(STORES, 'readwrite');
   for (const s of STORES) if (s !== 'meta') t.objectStore(s).clear();
@@ -672,7 +672,7 @@ async function importBackup(file) {
   t.objectStore('meta').put(meta);
   await new Promise((res, rej) => { t.oncomplete = res; t.onerror = () => rej(t.error); });
   await loadAll();
-  toast('Backup restored ✓');
+  toast('Import done ✓');
   go('#collect');
   render();
 }
@@ -824,27 +824,27 @@ const ACT = {
     const email = $('#email').value.trim();
     if (!/^\S+@\S+\.\S+$/.test(email)) { toast('Enter a valid e-mail address first'); $('#email').focus(); return; }
     if (email !== meta.email) { meta.email = email; saveMeta(); }
-    if (!UI.prepared) { toast('Preparing backup… try again in a moment'); return; }
+    if (!UI.prepared) { toast('Preparing export… try again in a moment'); return; }
     const file = backupFile();
     navigator.clipboard?.writeText(email).catch(() => {});
     if (navigator.canShare?.({ files: [file] })) {
       toast(`Address copied: ${email}`, 4000);
-      navigator.share({ files: [file], title: `Horny Mafia backup ${today()}`, text: `Horny Mafia backup ${today()}` })
+      navigator.share({ files: [file], title: `Horny Mafia export ${today()}`, text: `Horny Mafia export ${today()}` })
         .then(backupDone)
         .catch(err => { if (err.name !== 'AbortError') toast('Sharing failed: ' + err.message); });
     } else {
       // No share sheet (e.g. desktop): save the file and open a mail draft to attach it to.
       downloadFile(file);
       setTimeout(() => {
-        location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent('Horny Mafia backup ' + today())}`
+        location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent('Horny Mafia export ' + today())}`
           + `&body=${encodeURIComponent(`Please attach the file ${file.name} from Downloads.`)}`;
       }, 600);
       backupDone();
     }
   },
   saveBackup: () => {
-    if (!UI.prepared) return toast('Preparing backup… try again in a moment');
-    downloadFile(backupFile()); toast('Backup saved to Downloads');
+    if (!UI.prepared) return toast('Preparing export… try again in a moment');
+    downloadFile(backupFile()); toast('Export saved to Downloads');
   },
 };
 
